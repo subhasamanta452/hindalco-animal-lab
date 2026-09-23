@@ -1,0 +1,7 @@
+models/
+split/
+metrics/
+mlruns/
+__pycache__/
+.env
+sample-request.json

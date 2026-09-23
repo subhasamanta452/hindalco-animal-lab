@@ -1,0 +1,17 @@
+name: animal-env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cpu
+      - torch==2.3.1
+      - torchvision==0.18.1
+      - numpy<2
+      - pillow
+      - pandas
+      - scikit-learn
+      - mlflow
+      - azureml-mlflow
+      - azureml-inference-server-http

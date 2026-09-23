@@ -1,0 +1,64 @@
+$schema: https://azuremlschemas.azureedge.net/latest/pipelineJob.schema.json
+type: pipeline
+display_name: animal-training-pipeline
+experiment_name: animal-pipeline-yourid        # EDIT: your id
+settings:
+  default_compute: azureml:cpu-cluster
+
+inputs:
+  raw_images:
+    type: uri_folder
+    path: azureml:animal-images-yourid:1       # EDIT: your id
+
+outputs:
+  trained_model:
+    type: uri_folder
+
+jobs:
+  prep_data:
+    type: command
+    code: ../src
+    environment: azureml:animal-env:1
+    command: >-
+      python prep.py
+      --raw_data ${{inputs.raw_images}}
+      --train_out ${{outputs.train_data}}
+      --test_out ${{outputs.test_data}}
+    inputs:
+      raw_images: ${{parent.inputs.raw_images}}
+    outputs:
+      train_data:
+        type: uri_folder
+      test_data:
+        type: uri_folder
+
+  train_model:
+    type: command
+    code: ../src
+    environment: azureml:animal-env:1
+    command: >-
+      python train.py
+      --train_data ${{inputs.train_data}}
+      --model_dir ${{outputs.model_output}}
+      --epochs 10
+    inputs:
+      train_data: ${{parent.jobs.prep_data.outputs.train_data}}
+    outputs:
+      model_output: ${{parent.outputs.trained_model}}
+
+  evaluate_model:
+    type: command
+    code: ../src
+    environment: azureml:animal-env:1
+    command: >-
+      python evaluate.py
+      --model_dir ${{inputs.model_input}}
+      --test_data ${{inputs.test_data}}
+      --metrics_out ${{outputs.metrics}}
+      --min_accuracy 0.70
+    inputs:
+      model_input: ${{parent.jobs.train_model.outputs.model_output}}
+      test_data: ${{parent.jobs.prep_data.outputs.test_data}}
+    outputs:
+      metrics:
+        type: uri_folder

@@ -1,0 +1,100 @@
+# Azure DevOps CI/CD - retrains and redeploys automatically when images change.
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - data/animals
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  ME: yourid                           # EDIT: your id
+  RG: test_group                       # EDIT: resource group given by the trainer
+  WS: hindalco-ml-ws                   # EDIT: workspace given by the trainer
+  AZURE_CONNECTION: azureml-connection # name given by the trainer
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.10'
+
+  - script: |
+      python -m pip install --quiet pillow pytest
+      python -m pytest tests -v
+    displayName: '1 - Check the images (tests)'
+
+  - task: AzureCLI@2
+    displayName: '2 - Upload images to Azure ML (new data version)'
+    inputs:
+      azureSubscription: $(AZURE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -e
+        az extension add -n ml -y --only-show-errors
+        DATA_VERSION=$(az ml data create --name animal-images-$ME \
+          --type uri_folder --path data/animals -g $RG -w $WS \
+          --query version -o tsv)
+        echo "Uploaded animal-images-$ME:$DATA_VERSION"
+        echo "##vso[task.setvariable variable=DATA_VERSION]$DATA_VERSION"
+
+  - task: AzureCLI@2
+    displayName: '3 - Run the Azure ML training pipeline'
+    timeoutInMinutes: 45
+    inputs:
+      azureSubscription: $(AZURE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -e
+        az extension add -n ml -y --only-show-errors
+        JOB=$(az ml job create --file azureml/pipeline.yml -g $RG -w $WS \
+          --set inputs.raw_images.path=azureml:animal-images-$ME:$DATA_VERSION \
+          --query name -o tsv)
+        echo "Pipeline job: $JOB"
+        az ml job stream --name $JOB -g $RG -w $WS
+        STATUS=$(az ml job show --name $JOB -g $RG -w $WS --query status -o tsv)
+        echo "Pipeline finished with status: $STATUS"
+        if [ "$STATUS" != "Completed" ]; then exit 1; fi
+        echo "##vso[task.setvariable variable=JOB]$JOB"
+
+  - task: AzureCLI@2
+    displayName: '4 - Register the new model version'
+    inputs:
+      azureSubscription: $(AZURE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -e
+        az extension add -n ml -y --only-show-errors
+        MODEL_VERSION=$(az ml model create --name animal-classifier-$ME --type custom_model \
+          --path azureml://jobs/$JOB/outputs/trained_model -g $RG -w $WS \
+          --query version -o tsv)
+        echo "Registered animal-classifier-$ME version $MODEL_VERSION"
+        echo "##vso[task.setvariable variable=MODEL_VERSION]$MODEL_VERSION"
+
+  - task: AzureCLI@2
+    displayName: '5 - Deploy the new model to the endpoint'
+    timeoutInMinutes: 30
+    inputs:
+      azureSubscription: $(AZURE_CONNECTION)
+      scriptType: bash
+      scriptLocation: inlineScript
+      inlineScript: |
+        set -e
+        az extension add -n ml -y --only-show-errors
+        EP=hindalco-animal-$ME
+        NEW_MODEL=azureml:animal-classifier-$ME:$MODEL_VERSION
+        if ! az ml online-endpoint show --name $EP -g $RG -w $WS -o none 2>/dev/null; then
+          echo "Endpoint not found - creating it"
+          az ml online-endpoint create --file azureml/endpoint.yml -g $RG -w $WS -o none
+        fi
+        if az ml online-deployment show --name blue --endpoint-name $EP -g $RG -w $WS -o none 2>/dev/null; then
+          az ml online-deployment update --file azureml/deployment.yml -g $RG -w $WS --set model=$NEW_MODEL
+        else
+          az ml online-deployment create --file azureml/deployment.yml -g $RG -w $WS --all-traffic --set model=$NEW_MODEL
+        fi
+        echo "Endpoint $EP now serves $NEW_MODEL"

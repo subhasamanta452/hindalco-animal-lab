@@ -1,0 +1,3 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineEndpoint.schema.json
+name: hindalco-animal-yourid                   # EDIT: your id (must be unique in the region)
+auth_mode: key

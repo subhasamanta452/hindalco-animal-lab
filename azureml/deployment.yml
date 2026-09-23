@@ -1,0 +1,11 @@
+$schema: https://azuremlschemas.azureedge.net/latest/managedOnlineDeployment.schema.json
+name: blue
+endpoint_name: hindalco-animal-yourid          # EDIT: your id
+model: azureml:animal-classifier-yourid:1      # EDIT: your id
+code_configuration:
+  code: ../src
+  scoring_script: score.py
+environment: azureml:animal-env:1
+instance_type: Standard_D2as_v4
+instance_count: 1
+app_insights_enabled: true

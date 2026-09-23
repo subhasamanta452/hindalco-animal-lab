@@ -1,0 +1,18 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+type: command
+display_name: animal-training-job
+experiment_name: animal-classifier-yourid      # EDIT: your id
+code: ../src
+environment: azureml:animal-env:1
+compute: azureml:cpu-cluster
+inputs:
+  raw_images:
+    type: uri_folder
+    path: azureml:animal-images-yourid:1       # EDIT: your id
+outputs:
+  model_output:
+    type: uri_folder
+command: >-
+  python prep.py --raw_data ${{inputs.raw_images}} --train_out split/train --test_out split/test &&
+  python train.py --train_data split/train --model_dir ${{outputs.model_output}} --epochs 10 &&
+  python evaluate.py --model_dir ${{outputs.model_output}} --test_data split/test --metrics_out outputs --min_accuracy 0.70
